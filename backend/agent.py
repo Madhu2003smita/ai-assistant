@@ -36,17 +36,14 @@ from database import SessionLocal, Interaction as DBInteraction, init_db
 
 load_dotenv()
 
-# ---------------------------------------------------------------------------
-# LLM setup — lazy so missing key doesn't crash import, only crashes on use
-# ---------------------------------------------------------------------------
+
 _key = os.getenv("GROQ_API_KEY", "")
 
 if not _key:
     import warnings
     warnings.warn("GROQ_API_KEY is not set. Add it to your .env file.")
 
-# Use a placeholder key so the object can be constructed; actual calls will
-# fail with a clear auth error rather than a startup crash.
+
 _init_key = _key or "placeholder-set-GROQ_API_KEY-in-env"
 
 _llm    = ChatGroq(model="llama-3.3-70b-versatile",  api_key=_init_key, temperature=0.1)
@@ -63,9 +60,7 @@ def _invoke(prompt: str) -> str:
             return f"LLM error: {e}"
 
 
-# ---------------------------------------------------------------------------
-# Shared extraction helper
-# ---------------------------------------------------------------------------
+
 _TODAY = datetime.utcnow().strftime("%Y-%m-%d")
 _NOW   = datetime.utcnow().strftime("%H:%M")
 
@@ -112,15 +107,15 @@ def _extract_form_fields(message: str, current: Dict[str, Any]) -> Dict[str, Any
     )
     raw = _invoke(prompt)
 
-    # Strip markdown fences if present
+    
     raw = re.sub(r"```(?:json)?", "", raw).strip()
 
-    # Extract first JSON object
+    
     m = re.search(r"\{[\s\S]*\}", raw)
     if m:
         try:
             extracted = json.loads(m.group())
-            # Merge: keep current values for empty extracted fields
+            
             merged = dict(current)
             for k, v in extracted.items():
                 if v and v != "":
@@ -129,25 +124,21 @@ def _extract_form_fields(message: str, current: Dict[str, Any]) -> Dict[str, Any
         except json.JSONDecodeError:
             pass
 
-    return dict(current)  # fallback: return unchanged
+    return dict(current)  
 
 
-# ---------------------------------------------------------------------------
-# Agent state
-# ---------------------------------------------------------------------------
+
 class AgentState(TypedDict):
     messages:       Annotated[List[BaseMessage], add_messages]
     current_fields: Dict[str, Any]
     tool_name:      str
-    form_fields:    Dict[str, Any]   # ← what gets sent back to frontend
+    form_fields:    Dict[str, Any]   
     suggestions:    List[str]
     reply:          str
     interaction_id: Optional[str]
 
 
-# ---------------------------------------------------------------------------
-# Tool 1: log_interaction
-# ---------------------------------------------------------------------------
+
 @tool
 def log_interaction(
     hcp_name: str,
@@ -167,7 +158,7 @@ def log_interaction(
     natural-language chat message and saves it to the database.
     Returns the interaction ID and an AI-generated summary.
     """
-    # Generate AI summary
+   
     summary_prompt = f"""Write a 2-sentence professional CRM summary for this HCP interaction:
 HCP: {hcp_name} | Type: {interaction_type} | Date: {date}
 Topics: {topics_discussed} | Sentiment: {hcp_sentiment}
@@ -176,7 +167,7 @@ Keep it under 50 words."""
 
     summary = _invoke(summary_prompt).strip()
 
-    # Persist
+    
     interaction_id = str(uuid.uuid4())
     db = SessionLocal()
     try:
@@ -211,9 +202,7 @@ Keep it under 50 words."""
     })
 
 
-# ---------------------------------------------------------------------------
-# Tool 2: edit_interaction
-# ---------------------------------------------------------------------------
+
 @tool
 def edit_interaction(
     interaction_id: str = "",
@@ -257,7 +246,7 @@ def edit_interaction(
         if outcomes:           record.outcomes = outcomes
         if follow_up_actions:  record.follow_up_actions = follow_up_actions
 
-        # Regenerate summary
+        
         record.ai_summary = _invoke(
             f"2-sentence CRM summary: HCP {record.hcp_name}, "
             f"Topics: {record.topics_discussed}, Sentiment: {record.hcp_sentiment}, "
@@ -279,9 +268,7 @@ def edit_interaction(
         db.close()
 
 
-# ---------------------------------------------------------------------------
-# Tool 3: recommend_next_action
-# ---------------------------------------------------------------------------
+
 @tool
 def recommend_next_action(
     hcp_name: str,
@@ -307,9 +294,7 @@ Topics: {topics_discussed} | Outcomes: {outcomes}""")
     return json.dumps({"recommendation": content, "hcp": hcp_name})
 
 
-# ---------------------------------------------------------------------------
-# Tool 4: suggest_follow_up
-# ---------------------------------------------------------------------------
+
 @tool
 def suggest_follow_up(
     hcp_name: str,
@@ -334,9 +319,7 @@ Type: {interaction_type} | Topics: {topics_discussed}""")
     return json.dumps({"follow_up_strategy": content, "hcp": hcp_name})
 
 
-# ---------------------------------------------------------------------------
-# Tool 5: draft_outreach_email
-# ---------------------------------------------------------------------------
+
 @tool
 def draft_outreach_email(
     hcp_name: str,
@@ -363,9 +346,6 @@ Outcomes: {outcomes}""")
     return json.dumps({"email_draft": content, "hcp": hcp_name})
 
 
-# ---------------------------------------------------------------------------
-# LangGraph graph
-# ---------------------------------------------------------------------------
 TOOLS = [
     log_interaction,
     edit_interaction,
@@ -421,9 +401,7 @@ def _build_graph():
 _graph = _build_graph()
 
 
-# ---------------------------------------------------------------------------
-# Result parsing
-# ---------------------------------------------------------------------------
+
 def _parse_tool_result(messages: List[BaseMessage]) -> Dict[str, Any]:
     """Extract the tool JSON result from the last ToolMessage."""
     for msg in reversed(messages):
@@ -462,9 +440,7 @@ def _suggestions_for(tool_name: str) -> List[str]:
     }.get(tool_name, [])
 
 
-# ---------------------------------------------------------------------------
-# Public entry point called by FastAPI
-# ---------------------------------------------------------------------------
+
 _TOOL_MAP = {
     "Log Interaction":       "log_interaction",
     "Edit Interaction":      "edit_interaction",
@@ -490,10 +466,10 @@ def run_agent(
     """
     internal = _TOOL_MAP.get(tool_name, "log_interaction")
 
-    # ── Step 1: Extract form fields from the natural-language message ──────
+    
     updated_fields = _extract_form_fields(message, current_fields)
 
-    # ── Step 2: Build system prompt ────────────────────────────────────────
+   
     system = f"""You are an AI assistant in a life-science CRM.
 The field rep just said: "{message}"
 
@@ -503,7 +479,7 @@ Extracted form data:
 Your task: call the '{internal}' tool using the extracted data above.
 After the tool call, write a brief 2-3 sentence confirmation for the rep."""
 
-    # ── Step 3: Run LangGraph ──────────────────────────────────────────────
+   
     try:
         final_state = _graph.invoke(
             {
@@ -525,16 +501,16 @@ After the tool call, write a brief 2-3 sentence confirmation for the rep."""
             "interaction_id": None,
         }
 
-    # ── Step 4: Parse results ──────────────────────────────────────────────
+   
     tool_result = _parse_tool_result(final_state["messages"])
     ai_reply    = _final_ai_text(final_state["messages"])
     interaction_id = tool_result.get("interaction_id") or current_fields.get("interaction_id")
 
-    # For edit: merge updated fields back
+   
     if internal == "edit_interaction":
         updated_fields = _extract_form_fields(message, current_fields)
 
-    # For recommend / follow-up: inject result into followUpActions
+   
     if internal == "recommend_next_action":
         rec = tool_result.get("recommendation", "")
         if rec:
@@ -545,7 +521,7 @@ After the tool call, write a brief 2-3 sentence confirmation for the rep."""
         if strat:
             updated_fields["followUpActions"] = strat
 
-    # For email: inject draft into outcomes
+    
     if internal == "draft_outreach_email":
         draft = tool_result.get("email_draft", "")
         if draft:

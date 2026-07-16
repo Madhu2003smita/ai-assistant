@@ -31,7 +31,7 @@ app.add_middleware(
 )
 
 
-# ── Request / Response models ────────────────────────────────────────────────
+
 
 class FormFields(BaseModel):
     hcpName: str = ""
@@ -56,13 +56,13 @@ class AgentRequest(BaseModel):
 
 class AgentResponse(BaseModel):
     reply: str
-    form_fields: Dict[str, Any]     # ← updated form state sent back to UI
+    form_fields: Dict[str, Any]     
     tools: List[str]
     suggestions: List[str]
     interaction_id: Optional[str] = None
 
 
-# ── Routes ───────────────────────────────────────────────────────────────────
+
 
 @app.get("/health")
 async def health():

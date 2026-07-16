@@ -21,7 +21,7 @@ const emptyForm = {
 const interactionSlice = createSlice({
   name: 'interaction',
   initialState: {
-    form: { ...emptyForm },          // ← populated by AI only
+    form: { ...emptyForm },         
     messages: [],
     suggestions: [],
     recentInteractions: [],
@@ -30,7 +30,7 @@ const interactionSlice = createSlice({
     lastSavedId: null,
   },
   reducers: {
-    // Called when AI returns form_fields — auto-populates the entire form
+    
     setFormFields(state, { payload }) {
       state.form = { ...state.form, ...payload };
     },

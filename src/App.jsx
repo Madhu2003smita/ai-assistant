@@ -1,10 +1,4 @@
-/**
- * AI-First CRM — HCP Log Interaction Screen
- *
- * GOLDEN RULE: The left form is READ-ONLY.
- * It is populated entirely by the AI chat on the right.
- * The user types in the chat → LangGraph agent extracts fields → form auto-fills.
- */
+
 import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import axios from 'axios';
@@ -32,7 +26,7 @@ const TOOLS = [
 const SENTIMENTS = ['Positive', 'Neutral', 'Negative'];
 const TYPES      = ['Meeting', 'Call', 'Email', 'Webinar', 'Conference', 'Advisory Board'];
 
-// ── Sentiment icon helper ────────────────────────────────────────────────────
+
 function SentimentIcon({ value, active }) {
   const map = { Positive: '🙂', Neutral: '😐', Negative: '😞' };
   return (
@@ -44,7 +38,7 @@ function SentimentIcon({ value, active }) {
   );
 }
 
-// ── Read-only field ──────────────────────────────────────────────────────────
+
 function ROField({ label, value, multiline }) {
   return (
     <div className="ro-field">
@@ -57,7 +51,7 @@ function ROField({ label, value, multiline }) {
   );
 }
 
-// ── Main component ───────────────────────────────────────────────────────────
+
 export default function App() {
   const dispatch = useDispatch();
   const { form, messages, suggestions, loading, error, lastSavedId } =
@@ -69,7 +63,7 @@ export default function App() {
   const [history, setHistory]       = useState([]);
   const chatEndRef = useRef(null);
 
-  // auto-scroll chat
+  
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -82,7 +76,7 @@ export default function App() {
     } catch (_) {}
   };
 
-  // ── Send chat message to agent ─────────────────────────────────────────────
+  
   const send = async () => {
     const msg = chatInput.trim();
     if (!msg || loading) return;
@@ -99,7 +93,7 @@ export default function App() {
         message:        msg,
       });
 
-      // ← THE KEY STEP: AI returned form_fields → auto-populate the form
+      
       if (data.form_fields) {
         dispatch(setFormFields(data.form_fields));
       }
@@ -126,14 +120,11 @@ export default function App() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="page-bg">
       <div className="split-layout">
 
-        {/* ════════════════════════════════════════════════
-            LEFT — Read-only form panel
-        ════════════════════════════════════════════════ */}
+       
         <div className="form-card">
 
           {/* Header */}
@@ -277,9 +268,7 @@ export default function App() {
 
         </div>
 
-        {/* ════════════════════════════════════════════════
-            RIGHT — AI Chat Panel
-        ════════════════════════════════════════════════ */}
+       
         <div className="chat-card">
 
           {/* Header */}
