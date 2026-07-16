@@ -1,209 +1,374 @@
-import { useMemo, useState } from 'react';
+/**
+ * AI-First CRM — HCP Log Interaction Screen
+ *
+ * GOLDEN RULE: The left form is READ-ONLY.
+ * It is populated entirely by the AI chat on the right.
+ * The user types in the chat → LangGraph agent extracts fields → form auto-fills.
+ */
+import { useEffect, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import axios from 'axios';
-import { appendMessage, resetForm, setError, setLoading, setSuggestedFollowUps, updateField } from './features/interaction/interactionSlice';
+import {
+  appendMessage,
+  resetAll,
+  setError,
+  setFormFields,
+  setLastSavedId,
+  setLoading,
+  setRecentInteractions,
+  setSuggestions,
+} from './features/interaction/interactionSlice';
 
-const toolOptions = [
-  'Summarize from Voice Note',
-  'Recommend next best action',
-  'Suggest follow-up timing',
-  'Prepare account plan',
-  'Draft outreach email',
+const API = 'http://localhost:8000';
+
+const TOOLS = [
+  { value: 'Log Interaction',        desc: 'Extract fields from chat & save' },
+  { value: 'Edit Interaction',       desc: 'Correct specific fields via chat' },
+  { value: 'Recommend Next Action',  desc: 'AI suggests best next sales step' },
+  { value: 'Suggest Follow-up',      desc: 'Optimal timing & channel advice' },
+  { value: 'Draft Outreach Email',   desc: 'Generate personalised email draft' },
 ];
 
-function App() {
+const SENTIMENTS = ['Positive', 'Neutral', 'Negative'];
+const TYPES      = ['Meeting', 'Call', 'Email', 'Webinar', 'Conference', 'Advisory Board'];
+
+// ── Sentiment icon helper ────────────────────────────────────────────────────
+function SentimentIcon({ value, active }) {
+  const map = { Positive: '🙂', Neutral: '😐', Negative: '😞' };
+  return (
+    <span style={{ fontSize: 18, opacity: active ? 1 : 0.35,
+                   filter: active ? 'drop-shadow(0 0 4px #6366f160)' : 'none',
+                   transition: 'all .2s' }}>
+      {map[value]}
+    </span>
+  );
+}
+
+// ── Read-only field ──────────────────────────────────────────────────────────
+function ROField({ label, value, multiline }) {
+  return (
+    <div className="ro-field">
+      <span className="ro-label">{label}</span>
+      {multiline
+        ? <div className="ro-value ro-multiline">{value || <span className="ro-empty">—</span>}</div>
+        : <div className="ro-value">{value || <span className="ro-empty">—</span>}</div>
+      }
+    </div>
+  );
+}
+
+// ── Main component ───────────────────────────────────────────────────────────
+export default function App() {
   const dispatch = useDispatch();
-  const { submission, messages, suggestedFollowUps, loading, error } = useSelector((state) => state.interaction);
-  const [chatInput, setChatInput] = useState('');
-  const [selectedTool, setSelectedTool] = useState(toolOptions[0]);
+  const { form, messages, suggestions, loading, error, lastSavedId } =
+    useSelector((s) => s.interaction);
 
-  const summary = useMemo(() => {
-    const parts = [submission.hcpName, submission.date, submission.interactionType, submission.topicsDiscussed, submission.followUpActions].filter(Boolean);
-    return parts.join(' • ');
-  }, [submission]);
+  const [chatInput, setChatInput]   = useState('');
+  const [activeTool, setActiveTool] = useState('Log Interaction');
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory]       = useState([]);
+  const chatEndRef = useRef(null);
 
-  const handleChange = (field) => (event) => {
-    dispatch(updateField({ field, value: event.target.value }));
+  // auto-scroll chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const fetchHistory = async () => {
+    try {
+      const r = await axios.get(`${API}/api/interactions`);
+      setHistory(r.data);
+      dispatch(setRecentInteractions(r.data));
+    } catch (_) {}
   };
 
-  const runAgent = async (mode = 'form') => {
+  // ── Send chat message to agent ─────────────────────────────────────────────
+  const send = async () => {
+    const msg = chatInput.trim();
+    if (!msg || loading) return;
+
+    dispatch(appendMessage({ role: 'user', content: msg }));
+    setChatInput('');
     dispatch(setLoading(true));
     dispatch(setError(''));
 
     try {
-      const payload = {
-        mode,
-        tool: selectedTool,
-        submission,
-        message: chatInput,
-      };
-      const response = await axios.post('http://localhost:8000/api/interaction', payload);
-      const reply = response.data.reply || response.data.message || 'Agent completed the action.';
-      const suggestions = response.data.suggestions || [];
-      dispatch(appendMessage({ role: 'assistant', content: reply }));
-      if (suggestions.length > 0) {
-        dispatch(setSuggestedFollowUps(suggestions));
+      const { data } = await axios.post(`${API}/api/interaction`, {
+        tool:           activeTool,
+        current_fields: form,
+        message:        msg,
+      });
+
+      // ← THE KEY STEP: AI returned form_fields → auto-populate the form
+      if (data.form_fields) {
+        dispatch(setFormFields(data.form_fields));
       }
-      if (mode === 'chat') {
-        dispatch(appendMessage({ role: 'user', content: chatInput }));
-        setChatInput('');
+      if (data.interaction_id) {
+        dispatch(setLastSavedId(data.interaction_id));
+        fetchHistory();
       }
+      if (data.suggestions?.length) {
+        dispatch(setSuggestions(data.suggestions));
+      }
+
+      dispatch(appendMessage({ role: 'assistant', content: data.reply }));
+
     } catch (err) {
-      dispatch(setError(err.response?.data?.detail || 'Unable to contact the AI agent.'));
+      const msg = err.response?.data?.detail || 'Could not reach the AI agent.';
+      dispatch(setError(msg));
+      dispatch(appendMessage({ role: 'error', content: msg }));
     } finally {
       dispatch(setLoading(false));
     }
   };
 
+  const handleKey = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  };
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="app-shell">
-      <header className="hero">
-        <div>
-          <p className="eyebrow">AI-First CRM • HCP Module</p>
-          <h1>Log HCP Interaction</h1>
-          <p className="subtext">Capture comprehensive HCP engagement details with AI-powered insights and suggestions.</p>
+    <div className="page-bg">
+      <div className="split-layout">
+
+        {/* ════════════════════════════════════════════════
+            LEFT — Read-only form panel
+        ════════════════════════════════════════════════ */}
+        <div className="form-card">
+
+          {/* Header */}
+          <div className="form-card-header">
+            <h1 className="page-heading">Log HCP Interaction</h1>
+            <div className="header-actions">
+              <button className="hdr-btn" onClick={() => { setShowHistory(!showHistory); fetchHistory(); }}>
+                📋 History {history.length > 0 && <span className="cnt">{history.length}</span>}
+              </button>
+              <button className="hdr-btn hdr-btn--danger" onClick={() => dispatch(resetAll())}>
+                Reset
+              </button>
+            </div>
+          </div>
+
+          {/* Saved banner */}
+          {lastSavedId && (
+            <div className="saved-banner">
+              ✅ Interaction saved &nbsp;<code>{lastSavedId.slice(0,8)}…</code>
+              <button className="dismiss" onClick={() => dispatch(setLastSavedId(null))}>✕</button>
+            </div>
+          )}
+
+          {/* AI control notice */}
+          <div className="ai-notice">
+            <span className="ai-notice-dot" />
+            This form is controlled by the AI assistant. Type in the chat panel →
+          </div>
+
+          {/* History panel */}
+          {showHistory && (
+            <div className="history-panel">
+              <p className="history-title">Recent Interactions</p>
+              {history.length === 0
+                ? <p className="history-empty">No interactions yet.</p>
+                : history.map(r => (
+                    <div key={r.id} className="history-row">
+                      <span className="history-hcp">{r.hcp_name}</span>
+                      <span className="history-type">{r.interaction_type} · {r.date}</span>
+                      <span className={`history-sent history-sent--${(r.hcp_sentiment||'neutral').toLowerCase()}`}>
+                        {r.hcp_sentiment}
+                      </span>
+                    </div>
+                  ))
+              }
+            </div>
+          )}
+
+          {/* ── Interaction Details section ── */}
+          <div className="form-section">
+            <p className="form-section-title">Interaction Details</p>
+
+            <div className="ro-grid-2">
+              <ROField label="HCP Name"         value={form.hcpName} />
+              <ROField label="Interaction Type" value={form.interactionType} />
+            </div>
+            <div className="ro-grid-2">
+              <ROField label="Date" value={form.date} />
+              <ROField label="Time" value={form.time} />
+            </div>
+            <ROField label="Attendees" value={form.attendees} />
+            <ROField label="Topics Discussed" value={form.topicsDiscussed} multiline />
+
+            {/* Voice note stub */}
+            <div className="voice-stub">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+              </svg>
+              Summarize from Voice Note <span className="muted">(Requires Consent)</span>
+            </div>
+          </div>
+
+          {/* ── Materials ── */}
+          <div className="form-section">
+            <p className="form-section-title">Materials Shared / Samples Distributed</p>
+
+            <div className="mat-box">
+              <div className="mat-box-header">
+                <span>Materials Shared</span>
+                <span className="mat-box-btn">🔍 Search/Add</span>
+              </div>
+              {form.materialsShared
+                ? <p className="mat-val">{form.materialsShared}</p>
+                : <p className="mat-empty">No materials added.</p>}
+            </div>
+
+            <div className="mat-box">
+              <div className="mat-box-header">
+                <span>Samples Distributed</span>
+                <span className="mat-box-btn">＋ Add Sample</span>
+              </div>
+              {form.samplesDistributed
+                ? <p className="mat-val">{form.samplesDistributed}</p>
+                : <p className="mat-empty">No samples added.</p>}
+            </div>
+          </div>
+
+          {/* ── Sentiment ── */}
+          <div className="form-section">
+            <p className="form-section-title">Observed/Inferred HCP Sentiment</p>
+            <div className="sentiment-row">
+              {SENTIMENTS.map(s => (
+                <label key={s} className="sentiment-opt">
+                  <SentimentIcon value={s} active={form.hcpSentiment === s} />
+                  <span className={`sentiment-lbl ${form.hcpSentiment === s ? 'sentiment-lbl--active' : ''}`}>
+                    {s}
+                  </span>
+                  {/* radio is hidden but accessible */}
+                  <input type="radio" name="sent" value={s}
+                    checked={form.hcpSentiment === s} readOnly className="sr-only" />
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Outcomes ── */}
+          <div className="form-section">
+            <ROField label="Outcomes" value={form.outcomes} multiline />
+          </div>
+
+          {/* ── Follow-up Actions ── */}
+          <div className="form-section">
+            <ROField label="Follow-up Actions" value={form.followUpActions} multiline />
+
+            {suggestions.length > 0 && (
+              <div className="suggestions-block">
+                <p className="suggestions-title">AI Suggested Follow-ups:</p>
+                {suggestions.map((s, i) => (
+                  <p key={i} className="suggestion-item"
+                    onClick={() => dispatch(setFormFields({
+                      followUpActions: form.followUpActions
+                        ? `${form.followUpActions}\n• ${s}` : `• ${s}`
+                    }))}>
+                    + {s}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+
         </div>
-      </header>
 
-      <main className="interaction-grid">
-        <section className="card form-panel">
-          <h2>Interaction Details</h2>
-          
-          <div className="form-row">
-            <label style={{ flex: 1 }}>
-              HCP Name
-              <input value={submission.hcpName} onChange={handleChange('hcpName')} placeholder="Search or select HCP..." />
-            </label>
-            <label style={{ flex: 0.6 }}>
-              Interaction Type
-              <select value={submission.interactionType} onChange={handleChange('interactionType')}>
-                <option>Meeting</option>
-                <option>Call</option>
-                <option>Email</option>
-                <option>Webinar</option>
-                <option>Conference</option>
-              </select>
-            </label>
+        {/* ════════════════════════════════════════════════
+            RIGHT — AI Chat Panel
+        ════════════════════════════════════════════════ */}
+        <div className="chat-card">
+
+          {/* Header */}
+          <div className="chat-hdr">
+            <div className="chat-avatar">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="8" r="4"/>
+                <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+              </svg>
+            </div>
+            <div>
+              <p className="chat-title">AI Assistant</p>
+              <p className="chat-sub">Log interaction via chat</p>
+            </div>
           </div>
 
-          <div className="form-row">
-            <label style={{ flex: 0.5 }}>
-              Date
-              <input type="date" value={submission.date} onChange={handleChange('date')} />
-            </label>
-            <label style={{ flex: 0.5 }}>
-              Time
-              <input type="time" value={submission.time} onChange={handleChange('time')} />
-            </label>
-          </div>
-
-          <label>
-            Attendees
-            <input value={submission.attendees} onChange={handleChange('attendees')} placeholder="Enter names or search..." />
-          </label>
-
-          <label>
-            Topics Discussed
-            <textarea value={submission.topicsDiscussed} onChange={handleChange('topicsDiscussed')} placeholder="Enter key discussion points..." rows={3} />
-          </label>
-
-          <h3 style={{ marginTop: '16px', marginBottom: '8px' }}>Materials Shared / Samples Distributed</h3>
-          <label>
-            Materials Shared
-            <input value={submission.materialsShared} onChange={handleChange('materialsShared')} placeholder="Any materials validated" />
-          </label>
-          <label>
-            Samples Distributed
-            <input value={submission.samplesDistributed} onChange={handleChange('samplesDistributed')} placeholder="Any samples validated" />
-          </label>
-
-          <h3 style={{ marginTop: '16px', marginBottom: '8px' }}>Observed/Inferred HCP Sentiment</h3>
-          <div className="radio-group">
-            {['Positive', 'Neutral', 'Negative'].map((sentiment) => (
-              <label key={sentiment} style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
-                <input
-                  type="radio"
-                  name="sentiment"
-                  value={sentiment}
-                  checked={submission.hcpSentiment === sentiment}
-                  onChange={handleChange('hcpSentiment')}
-                />
-                {sentiment}
-              </label>
-            ))}
-          </div>
-
-          <label style={{ marginTop: '16px' }}>
-            Outcomes
-            <textarea value={submission.outcomes} onChange={handleChange('outcomes')} placeholder="Key outcomes or agreements..." rows={3} />
-          </label>
-
-          <label>
-            Follow-up Actions
-            <textarea value={submission.followUpActions} onChange={handleChange('followUpActions')} placeholder="Enter next steps or tasks..." rows={3} />
-          </label>
-
-          <div className="actions" style={{ marginTop: '16px' }}>
-            <button onClick={() => runAgent('form')} disabled={loading} style={{ flex: 1 }}>
-              {loading ? 'Processing...' : 'Submit to AI Agent'}
-            </button>
-            <button className="secondary" onClick={() => dispatch(resetForm())}>Reset</button>
-          </div>
-        </section>
-
-        <section className="card assistant-panel">
-          <h2>AI Assistant</h2>
-          <p style={{ fontSize: '0.9rem', color: '#567', marginBottom: '12px' }}>Log interaction via chat</p>
-          
-          <label>
-            Tool
-            <select value={selectedTool} onChange={(e) => setSelectedTool(e.target.value)}>
-              {toolOptions.map((tool) => (
-                <option key={tool} value={tool}>{tool}</option>
+          {/* Tool selector */}
+          <div className="tool-row">
+            <select
+              className="tool-select"
+              value={activeTool}
+              onChange={e => setActiveTool(e.target.value)}
+            >
+              {TOOLS.map(t => (
+                <option key={t.value} value={t.value}>{t.value}</option>
               ))}
             </select>
-          </label>
+            <span className="tool-desc">
+              {TOOLS.find(t => t.value === activeTool)?.desc}
+            </span>
+          </div>
 
-          <textarea 
-            value={chatInput} 
-            onChange={(e) => setChatInput(e.target.value)} 
-            placeholder="Describe the interaction or ask for suggestions..." 
-            rows={4} 
-          />
-          
-          <div className="actions">
-            <button onClick={() => runAgent('chat')} disabled={loading || !chatInput.trim()}>
-              {loading ? 'Thinking...' : 'Send'}
+          {/* Messages */}
+          <div className="chat-msgs">
+            {messages.length === 0 && (
+              <div className="chat-hint">
+                Log interaction details here (e.g., "Met Dr. Smith, discussed
+                Product X efficacy, positive sentiment, shared brochure") or ask for help.
+              </div>
+            )}
+
+            {messages.map((m, i) => (
+              <div key={i} className={`bubble bubble--${m.role}`}>
+                <p className="bubble-text">{m.content}</p>
+              </div>
+            ))}
+
+            {loading && (
+              <div className="bubble bubble--assistant">
+                <p className="bubble-text typing">
+                  <span /><span /><span />
+                </p>
+              </div>
+            )}
+
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Input */}
+          <div className="chat-input-bar">
+            <input
+              className="chat-input"
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={handleKey}
+              placeholder="Describe interaction..."
+              disabled={loading}
+            />
+            <button
+              className="log-btn"
+              onClick={send}
+              disabled={loading || !chatInput.trim()}
+            >
+              {loading
+                ? <span className="spin" />
+                : <>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
+                    </svg>
+                    Log
+                  </>
+              }
             </button>
           </div>
 
-          <div className="chat-window">
-            {messages.length === 0 && suggestedFollowUps.length === 0 && (
-              <p style={{ color: '#999', fontSize: '0.9rem', marginTop: '12px' }}>No messages yet. Start by submitting the form or asking a question.</p>
-            )}
-            
-            {suggestedFollowUps.length > 0 && (
-              <div style={{ marginBottom: '12px' }}>
-                <p style={{ fontWeight: '600', fontSize: '0.85rem', color: '#3f6ed8', marginBottom: '6px' }}>Suggested Follow-ups:</p>
-                <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '0.9rem' }}>
-                  {suggestedFollowUps.map((item, idx) => (
-                    <li key={idx} style={{ marginBottom: '4px', color: '#567' }}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            
-            {messages.map((message, index) => (
-              <div key={`${message.role}-${index}`} className={`bubble ${message.role}`} style={{ marginBottom: '8px' }}>
-                <strong>{message.role === 'assistant' ? 'Agent' : 'You'}:</strong> {message.content}
-              </div>
-            ))}
-            {error ? <div className="bubble error" style={{ marginTop: '8px' }}>{error}</div> : null}
-          </div>
-        </section>
-      </main>
+          {error && <p className="chat-error">{error}</p>}
+        </div>
+
+      </div>
     </div>
   );
 }
-
-export default App;

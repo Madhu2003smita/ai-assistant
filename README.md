@@ -1,210 +1,199 @@
-# AI-First HCP CRM Module – Log Interaction Screen
+# AI-First CRM – HCP Module: Log Interaction Screen
 
-A modern, AI-powered CRM application for logging healthcare provider (HCP) interactions with intelligent recommendations and conversational AI assistance.
+A full-stack AI-powered CRM application for life science field representatives to log, analyse, and manage HCP (Healthcare Professional) interactions.
 
-## ✨ Features
+---
 
-**Comprehensive Interaction Logging:**
-- Structured form with all relevant HCP engagement fields
-- Date, time, attendee tracking
-- Materials and samples distribution logging
-- HCP sentiment assessment (Positive, Neutral, Negative)
-- Outcomes and follow-up action recording
+## Tech Stack
 
-**AI-Powered Assistant (5 Specialized Tools):**
-- **Summarize from Voice Note** – Get interaction summaries
-- **Recommend next best action** – Intelligent next steps
-- **Suggest follow-up timing** – Optimal timing recommendations
-- **Prepare account plan** – Strategic account guidance
-- **Draft outreach email** – Email template generation
+| Layer | Technology |
+|---|---|
+| **Frontend** | React 18 + Redux Toolkit + Vite |
+| **Backend** | Python 3.11 + FastAPI + Uvicorn |
+| **AI Framework** | LangGraph (agent graph with tool-calling) |
+| **LLMs** | Groq – `gemma2-9b-it` (primary) · `llama-3.3-70b-versatile` (fallback) |
+| **Database** | SQLite (default) · PostgreSQL / MySQL (configurable via `DATABASE_URL`) |
+| **Font** | Google Inter |
 
-**Smart Features:**
-- Sentiment-aware recommendations
-- Context-based AI insights
-- Real-time suggested follow-ups
-- Conversational chat interface
-- Redux state management
-- Beautiful, responsive UI
+---
 
-## 🚀 Quick Start
+## Features
+
+- **Dual-mode interaction logging** – structured form *and* conversational chat interface
+- **LangGraph AI agent** with 5 specialised tools for sales activities
+- **AI enrichment** – automatic summarisation and entity extraction (products, action items, sentiment)
+- **Persistent storage** – all interactions saved to a relational database
+- **Interaction history** – browse, load, and edit previously logged records
+- **One-click AI suggestions** – suggested follow-ups populate the form with a single click
+- **Responsive UI** – works on desktop and tablet
+
+---
+
+## LangGraph Agent & Tools
+
+The agent is a **ReAct-style graph** built with LangGraph. Each user request triggers the agent node which decides which tool to invoke based on the selected tool and conversation context.
+
+```
+START → agent_node ─(tool_calls?)─► tool_node → agent_node → END
+```
+
+### Tool 1 – `log_interaction`
+Captures all interaction fields, sends them to the Groq LLM for **summarisation and entity extraction** (products mentioned, action items, sentiment signals), then persists the enriched record to the database. Returns the generated interaction ID, AI summary, and extracted entities.
+
+### Tool 2 – `edit_interaction`
+Accepts an `interaction_id` (or defaults to the most recent record) and updates only the supplied non-empty fields. **Regenerates the AI summary** after applying changes. Used when a rep needs to correct or supplement a previously logged interaction.
+
+### Tool 3 – `recommend_next_action`
+Analyses HCP sentiment, discussed topics, and outcomes to suggest the **single highest-impact next sales action**, along with its rationale and priority level.
+
+### Tool 4 – `suggest_follow_up`
+Recommends the **optimal follow-up timing and communication channel** based on sentiment and interaction type, and proposes the core message to reinforce.
+
+### Tool 5 – `draft_outreach_email`
+Generates a **personalised, compliance-aware follow-up email** (subject + body ≤ 150 words) tailored to the specific topics discussed and HCP context.
+
+---
+
+## Project Structure
+
+```
+├── backend/
+│   ├── main.py          # FastAPI app – routes + CORS
+│   ├── agent.py         # LangGraph agent graph + 5 tools
+│   └── database.py      # SQLAlchemy models + session setup
+├── src/
+│   ├── App.jsx          # Main React component (form + chat UI)
+│   ├── main.jsx         # React entry point + Redux Provider
+│   ├── store.js         # Redux store
+│   ├── index.css        # Global styles (Google Inter)
+│   └── features/
+│       └── interaction/
+│           └── interactionSlice.js  # Redux slice
+├── index.html
+├── vite.config.js
+├── package.json
+├── requirements.txt
+└── .env.example
+```
+
+---
+
+## Getting Started
 
 ### Prerequisites
-- Node.js v18+
-- Python 3.10+
+- **Node.js** ≥ 18
+- **Python** ≥ 3.10
+- A free [Groq API key](https://console.groq.com/)
 
-### Frontend Setup
+---
+
+### 1. Clone the repository
+
+```bash
+git clone <your-repo-url>
+cd <repo-folder>
+```
+
+### 2. Configure environment variables
+
+```bash
+cp .env.example .env
+# Open .env and add your GROQ_API_KEY
+```
+
+### 3. Install Python dependencies
+
+```bash
+# Create and activate a virtual environment (recommended)
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+
+pip install -r requirements.txt
+```
+
+### 4. Start the FastAPI backend
+
+```bash
+cd backend
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+The API will be available at `http://localhost:8000`.  
+Interactive docs: `http://localhost:8000/docs`
+
+### 5. Install frontend dependencies & start Vite
+
+Open a new terminal:
+
 ```bash
 npm install
 npm run dev
 ```
-Frontend runs at: **http://localhost:5174/**
 
-### Backend Setup
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-python backend/main.py
-```
-Backend API runs at: **http://localhost:8000/**
+The UI will be available at `http://localhost:5173`.
 
-### Both Servers Together
-**Terminal 1:**
-```bash
-npm run dev
-```
+---
 
-**Terminal 2:**
-```bash
-.venv\Scripts\activate
-python backend/main.py
-```
+## API Reference
 
-## 📝 How to Use
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Liveness probe |
+| `GET` | `/api/tools` | List all agent tool names |
+| `POST` | `/api/interaction` | Run LangGraph agent (main endpoint) |
+| `GET` | `/api/interactions` | List recent interactions (last 50) |
+| `GET` | `/api/interactions/{id}` | Fetch a single interaction by ID |
 
-1. **Fill the Interaction Form** (left panel)
-   - Enter HCP details, date, interaction type
-   - Document topics, materials, samples
-   - Select HCP sentiment
-   - Record outcomes and follow-up actions
+### POST `/api/interaction` payload
 
-2. **Submit to AI Agent**
-   - Click "Submit to AI Agent"
-   - Receive contextual AI insights
-   - View suggested follow-up actions
-
-3. **Use Chat Interface** (right panel)
-   - Select an AI tool from dropdown
-   - Type a question or request
-   - Get immediate recommendations
-
-## 🏗️ Architecture
-
-**Frontend:**
-- React 18 + Vite
-- Redux Toolkit for state management
-- Axios for API communication
-- Modern CSS with responsive design
-
-**Backend:**
-- Python HTTP server
-- LangGraph-inspired tool routing
-- JSON-based API
-- CORS-enabled for frontend
-
-**API Endpoint:**
-```
-POST /api/interaction
-```
-
-**Request:**
 ```json
 {
-  "mode": "form|chat",
-  "tool": "Tool name",
+  "tool": "Log Interaction",
+  "mode": "form",
+  "message": "Optional chat message",
   "submission": {
-    "hcpName": "Dr. Name",
-    "date": "2026-07-15",
-    "topicsDiscussed": "...",
-    "hcpSentiment": "Positive|Neutral|Negative",
-    "outcomes": "...",
-    "followUpActions": "..."
+    "hcpName": "Dr. Priya Sharma",
+    "interactionType": "Meeting",
+    "date": "2025-04-19",
+    "time": "14:30",
+    "attendees": "John Doe",
+    "topicsDiscussed": "Phase III efficacy data for OncoBoost",
+    "materialsShared": "OncoBoost Phase III brochure",
+    "samplesDistributed": "Starter pack x2",
+    "hcpSentiment": "Positive",
+    "outcomes": "HCP open to prescribing after formulary review",
+    "followUpActions": "Send clinical evidence summary"
   }
 }
 ```
 
-**Response:**
-```json
-{
-  "reply": "AI-generated response",
-  "tools": ["Tool 1", "Tool 2", ...],
-  "suggestions": ["Suggestion 1", "Suggestion 2", ...]
-}
+---
+
+## Using a Production Database
+
+Set `DATABASE_URL` in your `.env` file:
+
+**PostgreSQL:**
+```
+DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/hcp_crm
 ```
 
-## 📁 Project Structure
-
+**MySQL:**
 ```
-assignment-react/
-├── src/
-│   ├── App.jsx           # Main app component
-│   ├── main.jsx          # React entry point
-│   ├── index.css         # Global styles
-│   ├── store.js          # Redux store
-│   └── features/
-│       └── interaction/
-│           └── interactionSlice.js  # Redux state
-├── backend/
-│   ├── main.py           # HTTP server
-│   └── agent.py          # AI tools routing
-├── package.json
-├── vite.config.js
-├── index.html
-└── README.md
+DATABASE_URL=mysql+pymysql://user:password@localhost:3306/hcp_crm
 ```
 
-## 🧪 Testing
-
-**Test the API directly:**
-```powershell
-.venv\Scripts\python -c "
-import json
-from urllib.request import Request, urlopen
-
-payload = json.dumps({
-    'mode': 'form',
-    'tool': 'Summarize from Voice Note',
-    'submission': {
-        'hcpName': 'Dr. Test',
-        'topicsDiscussed': 'Product discussion',
-        'hcpSentiment': 'Positive',
-        'outcomes': 'Interest shown'
-    }
-}).encode()
-
-req = Request('http://127.0.0.1:8000/api/interaction', data=payload, headers={'Content-Type': 'application/json'}, method='POST')
-response = json.loads(urlopen(req, timeout=10).read().decode())
-print(response)
-"
-```
-
-## 📦 Build for Production
-
-```bash
-npm run build
-```
-
-Output in `dist/` directory ready for deployment.
-
-## 🔧 Tech Stack
-
-- **Frontend:** React, Redux Toolkit, Vite, Axios
-- **Backend:** Python 3, HTTP Server
-- **Architecture:** LangGraph-style tool routing
-- **Styling:** Modern CSS with responsive design
-- **State Management:** Redux
-
-## 📄 License
-
-MIT
-
-## 👥 Author
-
-AI-First CRM Development Team
+The tables are created automatically on server start.
 
 ---
 
-## ✅ Assignment Completion Checklist
+## What I Understood from the Task
 
-- ✅ React UI with Redux state management
-- ✅ Python backend with LangGraph tool routing
-- ✅ All 5 AI tools implemented and functional
-- ✅ HCP interaction form with comprehensive fields
-- ✅ Sentiment-aware recommendations
-- ✅ Suggested follow-ups generation
-- ✅ Chat interface for conversational interaction
-- ✅ GitHub repository setup
-- ✅ README with setup and usage instructions
-- ✅ Backend API documentation
-- ✅ Working locally with both servers running
+This task required building an **AI-first CRM screen** specifically for pharmaceutical/life-science field representatives interacting with Healthcare Professionals. The key insight is that traditional CRM data entry is slow and error-prone – the AI layer (LangGraph + Groq) makes the experience faster by:
 
-**Repository:** [github.com/Madhu2003smita/ai-assistant](https://github.com/Madhu2003smita/ai-assistant)
+1. **Extracting structured data** from freeform conversation (chat mode)
+2. **Enriching records automatically** with summaries and entity extraction
+3. **Guiding reps** with next-best-action and follow-up recommendations
+4. **Reducing cognitive load** by drafting emails and suggesting follow-ups
+
+The dual-mode UI (form + chat) ensures flexibility for reps who prefer structured input as well as those who prefer conversational logging in the field.

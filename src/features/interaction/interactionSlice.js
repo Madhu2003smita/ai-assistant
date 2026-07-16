@@ -1,53 +1,77 @@
 import { createSlice } from '@reduxjs/toolkit';
 
-const initialState = {
-  submission: {
-    hcpName: '',
-    date: '',
-    time: '',
-    interactionType: 'Meeting',
-    attendees: '',
-    topicsDiscussed: '',
-    materialsShared: '',
-    samplesDistributed: '',
-    hcpSentiment: 'Neutral',
-    outcomes: '',
-    followUpActions: '',
-  },
-  messages: [],
-  suggestedFollowUps: [],
-  loading: false,
-  error: '',
+const today = new Date().toISOString().split('T')[0];
+const now   = new Date().toTimeString().slice(0, 5);
+
+const emptyForm = {
+  hcpName: '',
+  date: today,
+  time: now,
+  interactionType: 'Meeting',
+  attendees: '',
+  topicsDiscussed: '',
+  materialsShared: '',
+  samplesDistributed: '',
+  hcpSentiment: 'Neutral',
+  outcomes: '',
+  followUpActions: '',
+  interaction_id: null,
 };
 
 const interactionSlice = createSlice({
   name: 'interaction',
-  initialState,
+  initialState: {
+    form: { ...emptyForm },          // ← populated by AI only
+    messages: [],
+    suggestions: [],
+    recentInteractions: [],
+    loading: false,
+    error: '',
+    lastSavedId: null,
+  },
   reducers: {
-    updateField(state, action) {
-      const { field, value } = action.payload;
-      state.submission[field] = value;
+    // Called when AI returns form_fields — auto-populates the entire form
+    setFormFields(state, { payload }) {
+      state.form = { ...state.form, ...payload };
     },
-    appendMessage(state, action) {
-      state.messages.push(action.payload);
+    appendMessage(state, { payload }) {
+      state.messages.push(payload);
     },
-    setLoading(state, action) {
-      state.loading = action.payload;
+    setSuggestions(state, { payload }) {
+      state.suggestions = payload;
     },
-    setError(state, action) {
-      state.error = action.payload;
+    setLoading(state, { payload }) {
+      state.loading = payload;
     },
-    setSuggestedFollowUps(state, action) {
-      state.suggestedFollowUps = action.payload;
+    setError(state, { payload }) {
+      state.error = payload;
     },
-    resetForm(state) {
-      state.submission = initialState.submission;
+    setLastSavedId(state, { payload }) {
+      state.lastSavedId = payload;
+      state.form.interaction_id = payload;
+    },
+    setRecentInteractions(state, { payload }) {
+      state.recentInteractions = payload;
+    },
+    resetAll(state) {
+      state.form = { ...emptyForm };
       state.messages = [];
-      state.suggestedFollowUps = [];
+      state.suggestions = [];
       state.error = '';
+      state.lastSavedId = null;
     },
   },
 });
 
-export const { updateField, appendMessage, setLoading, setError, setSuggestedFollowUps, resetForm } = interactionSlice.actions;
+export const {
+  setFormFields,
+  appendMessage,
+  setSuggestions,
+  setLoading,
+  setError,
+  setLastSavedId,
+  setRecentInteractions,
+  resetAll,
+} = interactionSlice.actions;
+
 export default interactionSlice.reducer;
