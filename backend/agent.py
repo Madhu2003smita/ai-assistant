@@ -24,6 +24,10 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Dict, List, Optional, Tuple
 
+# Disable LangSmith telemetry – prevents xxhash DLL load on restricted machines
+os.environ.setdefault("LANGCHAIN_TRACING_V2", "false")
+os.environ.setdefault("LANGSMITH_TRACING", "false")
+
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
